@@ -702,11 +702,17 @@ loongarch64_analyze_function(ulong start, ulong offset,
 
 	previous->sp = current->sp + spadjust;
 
-	if (rapos && !readmem(rapos, KVADDR, &current->ra,
-			      sizeof(current->ra), "RA from stack",
-			      RETURN_ON_ERROR)) {
-		error(FATAL, "Cannot read RA from stack %lx", rapos);
-		return;
+	if (rapos) {
+		ulong ra;
+
+		if (!readmem(rapos, KVADDR, &ra, sizeof(ra), "RA from stack",
+		    RETURN_ON_ERROR)) {
+			error(FATAL, "Cannot read RA from stack %lx", rapos);
+			return;
+		}
+
+		if (IS_KVADDR(ra) || !IS_KVADDR(current->ra))
+			current->ra = ra;
 	}
 }
 
