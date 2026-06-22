@@ -683,8 +683,8 @@ riscv64_vtop_3level_4k(ulong *pgd, ulong vaddr, physaddr_t *paddr, int verbose)
 		if (verbose) {
 			fprintf(fp, "\n");
 			riscv64_translate_pte((ulong)pte_val, 0, 0);
+			fprintf(fp, " PAGE: %016lx not present\n\n", PAGEBASE(*paddr));
 		}
-		fprintf(fp, " PAGE: %016lx not present\n\n", PAGEBASE(*paddr));
 		return FALSE;
 	}
 
@@ -697,7 +697,8 @@ riscv64_vtop_3level_4k(ulong *pgd, ulong vaddr, physaddr_t *paddr, int verbose)
 
 	return TRUE;
 no_page:
-	fprintf(fp, "invalid for %lx address\n", vaddr);
+	if (verbose)
+		fprintf(fp, "invalid for %lx address\n", vaddr);
 	return FALSE;
 }
 
@@ -1275,8 +1276,8 @@ riscv64_vtop_4level_4k(ulong *pgd, ulong vaddr, physaddr_t *paddr, int verbose)
 		if (verbose) {
 			fprintf(fp, "\n");
 			riscv64_translate_pte((ulong)pte_val, 0, 0);
+			fprintf(fp, " PAGE: %016lx not present\n\n", PAGEBASE(*paddr));
 		}
-		fprintf(fp, " PAGE: %016lx not present\n\n", PAGEBASE(*paddr));
 		return FALSE;
 	}
 
@@ -1289,7 +1290,8 @@ riscv64_vtop_4level_4k(ulong *pgd, ulong vaddr, physaddr_t *paddr, int verbose)
 
 	return TRUE;
 no_page:
-	fprintf(fp, "invalid for %lx address\n", vaddr);
+	if (verbose)
+		fprintf(fp, "invalid for %lx address\n", vaddr);
 	return FALSE;
 }
 
@@ -1364,8 +1366,8 @@ riscv64_vtop_5level_4k(ulong *pgd, ulong vaddr, physaddr_t *paddr, int verbose)
 		if (verbose) {
 			fprintf(fp, "\n");
 			riscv64_translate_pte((ulong)pte_val, 0, 0);
+			fprintf(fp, " PAGE: %016lx not present\n\n", PAGEBASE(*paddr));
 		}
-		printf("!_PAGE_PRESENT\n");
 		return FALSE;
 	}
 
@@ -1378,7 +1380,8 @@ riscv64_vtop_5level_4k(ulong *pgd, ulong vaddr, physaddr_t *paddr, int verbose)
 
 	return TRUE;
 no_page:
-	fprintf(fp, "invalid for %lx address\n", vaddr);
+	if (verbose)
+		fprintf(fp, "invalid for %lx address\n", vaddr);
 	return FALSE;
 }
 
