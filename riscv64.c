@@ -244,6 +244,8 @@ riscv64_dump_machdep_table(ulong arg)
 		fprintf(fp, "%sIRQ_STACKS", others++ ? "|" : "");
 	if (machdep->flags & OVERFLOW_STACKS)
 		fprintf(fp, "%sOVERFLOW_STACKS", others++ ? "|" : "");
+	if (machdep->flags & VMEMMAP)
+		fprintf(fp, "%sVMEMMAP", others++ ? "|" : "");
 	fprintf(fp, ")\n");
 
 	fprintf(fp, "             kvbase: %lx\n", machdep->kvbase);
@@ -1749,6 +1751,9 @@ riscv64_init(int when)
 		machdep->show_interrupts = generic_show_interrupts;
 		machdep->get_irq_affinity = generic_get_irq_affinity;
 		machdep->init_kernel_pgd = NULL; /* pgd set by symbol_value("swapper_pg_dir") */
+
+		if (machdep->machspec->vmemmap_vaddr)
+			machdep->flags |= VMEMMAP;
 		break;
 
 	case POST_GDB:
