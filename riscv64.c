@@ -62,6 +62,7 @@ static void riscv64_set_process_stack(struct bt_info *);
 static void riscv64_set_irq_stack(struct bt_info *);
 static int riscv64_on_overflow_stack(int, ulong);
 static void riscv64_set_overflow_stack(struct bt_info *);
+static int riscv64_get_kvaddr_ranges(struct vaddr_range *);
 
 #define REG_FMT 	"%016lx"
 #define SZ_2G		0x80000000
@@ -1757,6 +1758,7 @@ riscv64_init(int when)
 
 		if (machdep->machspec->vmemmap_vaddr)
 			machdep->flags |= VMEMMAP;
+		machdep->get_kvaddr_ranges = riscv64_get_kvaddr_ranges;
 		break;
 
 	case POST_GDB:
@@ -2016,6 +2018,52 @@ riscv64_eframe_search(struct bt_info *bt)
 	riscv64_print_exception_frame(bt, ptr, USER_MODE);
 
 	return count;
+}
+
+static int
+compare_kvaddr(const void *v1, const void *v2)
+{
+	struct vaddr_range *r1, *r2;
+
+	r1 = (struct vaddr_range *)v1;
+	r2 = (struct vaddr_range *)v2;
+
+	return (r1->start < r2->start ? -1 :
+		r1->start == r2->start ? 0 : 1);
+}
+
+static int
+riscv64_get_kvaddr_ranges(struct vaddr_range *vrp)
+{
+	int cnt;
+
+	cnt = 0;
+
+	vrp[cnt].type = KVADDR_UNITY_MAP;
+	vrp[cnt].start = machdep->machspec->page_offset;
+	vrp[cnt++].end = vt->high_memory;
+
+	vrp[cnt].type = KVADDR_VMALLOC;
+	vrp[cnt].start = machdep->machspec->vmalloc_start_addr;
+	vrp[cnt++].end = last_vmalloc_address();
+
+	if (st->mods_installed) {
+		vrp[cnt].type = KVADDR_MODULES;
+		vrp[cnt].start = lowest_module_address();
+		vrp[cnt++].end = roundup(highest_module_address(),
+			PAGESIZE());
+	}
+
+	if (machdep->flags & VMEMMAP) {
+		vrp[cnt].type = KVADDR_VMEMMAP;
+		vrp[cnt].start = machdep->machspec->vmemmap_vaddr;
+		vrp[cnt++].end = vt->node_table[vt->numnodes-1].mem_map +
+			(vt->node_table[vt->numnodes-1].size * SIZE(page));
+	}
+
+	qsort(vrp, cnt, sizeof(struct vaddr_range), compare_kvaddr);
+
+	return cnt;
 }
 
 #else /* !RISCV64 */
