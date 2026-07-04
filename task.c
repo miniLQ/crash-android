@@ -107,8 +107,8 @@ static void foreach_cleanup(void *);
 static void ps_cleanup(void *);
 static char *task_pointer_string(struct task_context *, ulong, char *);
 static int panic_context_adjusted(struct task_context *tc);
-static void show_last_run(struct task_context *, struct psinfo *);
-static void show_milliseconds(struct task_context *, struct psinfo *);
+static void show_last_run(ulong, struct task_context *, struct psinfo *);
+static void show_milliseconds(ulong, struct task_context *, struct psinfo *);
 static char *translate_nanoseconds(ulonglong, char *);
 static int sort_by_last_run(const void *arg1, const void *arg2);
 static void sort_context_array_by_last_run(void);
@@ -3534,7 +3534,7 @@ cmd_ps(void)
 	cpuspec = NULL;
 	flag = 0;
 
-        while ((c = getopt(argcnt, args, "HASgstcpkuGlmarC:y:")) != EOF) {
+        while ((c = getopt(argcnt, args, "HAISgstcpkuGlmarC:y:")) != EOF) {
                 switch(c)
 		{
 		case 'k':
@@ -3643,6 +3643,10 @@ cmd_ps(void)
 		case 'A':
 			check_ps_exclusive(flag, PS_ACTIVE);
 			flag |= PS_ACTIVE;
+			break;
+
+		case 'I':
+			flag |= PS_EXCLUDE_IDLE;
 			break;
 
 		case 'H':
@@ -3794,6 +3798,8 @@ show_ps_data(ulong flag, struct task_context *tc, struct psinfo *psi)
 		return;
 	if ((flag & PS_POLICY) && !has_sched_policy(tc->task, psi->policy))
 		return;
+    if (tc && (flag & PS_EXCLUDE_IDLE) && is_idle_thread(tc->task))
+		return;
 	if (flag & PS_GROUP) {
 		if (flag & (PS_LAST_RUN|PS_MSECS))
 			error(FATAL, "-G not supported with -%c option\n",
@@ -3827,11 +3833,11 @@ show_ps_data(ulong flag, struct task_context *tc, struct psinfo *psi)
 		return;
 	}
 	if (flag & (PS_LAST_RUN)) {
-		show_last_run(tc, psi);
+		show_last_run(flag, tc, psi);
 		return;
 	}
 	if (flag & (PS_MSECS)) {
-		show_milliseconds(tc, psi);
+		show_milliseconds(flag, tc, psi);
 		return;
 	}
 	if (flag & PS_ARGV_ENVP) {
@@ -3988,7 +3994,7 @@ show_ps_summary(ulong flag)
 		char string[3];
 	} ps_state[MAX_STATES];
 
-	if (flag & (PS_USER|PS_KERNEL|PS_GROUP))
+	if (flag & (PS_USER|PS_KERNEL|PS_GROUP|PS_EXCLUDE_IDLE))
 		error(FATAL, "-S option cannot be used with other options\n");
 
 	for (s = 0; s < MAX_STATES; s++)
@@ -4023,7 +4029,7 @@ show_ps_summary(ulong flag)
  *  current state.
  */
 static void
-show_last_run(struct task_context *tc, struct psinfo *psi)
+show_last_run(ulong flag, struct task_context *tc, struct psinfo *psi)
 {
 	int i, c, others;
 	struct task_context *tcp;
@@ -4053,6 +4059,8 @@ show_last_run(struct task_context *tc, struct psinfo *psi)
 			for (i = 0; i < RUNNING_TASKS(); i++, tcp++) {
 				if (tcp->processor != c)
 					continue;
+				if ((flag & PS_EXCLUDE_IDLE) && is_idle_thread(tcp->task))
+					continue;
 				fprintf(fp, format, task_last_run(tcp->task));
 				fprintf(fp, "[%s]  ", 
 					task_state_string(tcp->task, buf, !VERBOSE));
@@ -4066,6 +4074,8 @@ show_last_run(struct task_context *tc, struct psinfo *psi)
 	} else {
 		tcp = FIRST_CONTEXT();
 		for (i = 0; i < RUNNING_TASKS(); i++, tcp++) {
+			if ((flag & PS_EXCLUDE_IDLE) && is_idle_thread(tcp->task))
+				continue;
 			fprintf(fp, format, task_last_run(tcp->task));
 			fprintf(fp, "[%s]  ", task_state_string(tcp->task, buf, !VERBOSE));
 			print_task_header(fp, tcp, FALSE);
@@ -4104,7 +4114,7 @@ translate_nanoseconds(ulonglong value, char *buf)
  *  sched_info.last_arrival and its current state.
  */
 static void
-show_milliseconds(struct task_context *tc, struct psinfo *psi)
+show_milliseconds(ulong flag, struct task_context *tc, struct psinfo *psi)
 {
 	int i, c, others, days, max_days;
 	struct task_context *tcp;
@@ -4154,6 +4164,8 @@ show_milliseconds(struct task_context *tc, struct psinfo *psi)
 			for (i = 0; i < RUNNING_TASKS(); i++, tcp++) {
 				if (tcp->processor != c)
 					continue;
+				if ((flag & PS_EXCLUDE_IDLE) && is_idle_thread(tcp->task))
+					continue;
 				delta = rq_clock - task_last_run(tcp->task);
 				if (delta < 0)
 					delta = 0;
@@ -4188,6 +4200,8 @@ show_milliseconds(struct task_context *tc, struct psinfo *psi)
 	} else {
 		tcp = FIRST_CONTEXT();
 		for (i = 0; i < RUNNING_TASKS(); i++, tcp++) {
+			if ((flag & PS_EXCLUDE_IDLE) && is_idle_thread(tcp->task))
+				continue;
 			if ((kt->flags & SMP) && (kt->flags & PER_CPU_OFF))
 				runq = rq_sp->value + 
 					kt->__per_cpu_offset[tcp->processor];
@@ -4561,6 +4575,8 @@ show_task_times(struct task_context *tcp, ulong flags)
                 if ((flags & PS_USER) && is_kernel_thread(tc->task))
                         continue;
                 if ((flags & PS_KERNEL) && !is_kernel_thread(tc->task))
+                        continue;
+                if ((flags & PS_EXCLUDE_IDLE) && is_idle_thread(tc->task))
                         continue;
 		if (flags & PS_GROUP) {
 			tgid = task_tgid(tc->task);

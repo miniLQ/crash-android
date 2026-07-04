@@ -1392,7 +1392,7 @@ NULL
 char *help_ps[] = {
 "ps",
 "display process status information",
-"[-k|-u|-G|-y policy] [-s] [-p|-c|-t|-[l|m][-C cpu]|-a|-g|-r|-S|-A|-H]\n     [pid | task | command] ...",
+"[-k|-u|-G|-I|-y policy] [-s] [-p|-c|-t|-[l|m][-C cpu]|-a|-g|-r|-S|-A|-H]\n     [pid | task | command] ...",
 "  This command displays process status for selected, or all, processes" ,
 "  in the system.  If no arguments are entered, the process data is",
 "  is displayed for all processes.  Specific processes may be selected",
@@ -1409,6 +1409,7 @@ char *help_ps[] = {
 "        -k  restrict the output to only kernel threads.",
 "        -u  restrict the output to only user tasks.",
 "        -G  display only the thread group leader in a thread group.",
+"        -I  exclude idle threads/tasks from the output.",
 " -y policy  restrict the output to tasks having a specified scheduling policy",
 "            expressed by its integer value or by its (case-insensitive) name;",
 "            multiple policies may be entered in a comma-separated list:",
