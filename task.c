@@ -118,6 +118,8 @@ static void parse_task_thread(int argcnt, char *arglist[], struct task_context *
 static void stack_overflow_check_init(void);
 static int has_sched_policy(ulong, ulong);
 static ulong task_policy(ulong);
+static const char *task_policy_name(ulong);
+static int task_prio(ulong);
 static ulong sched_policy_bit_from_str(const char *);
 static ulong make_sched_policy(const char *);
 void crash_get_current_task_info(unsigned long *, char **);
@@ -3534,7 +3536,7 @@ cmd_ps(void)
 	cpuspec = NULL;
 	flag = 0;
 
-        while ((c = getopt(argcnt, args, "HAISgstcpkuGlmarC:y:")) != EOF) {
+        while ((c = getopt(argcnt, args, "HAISgstcpkuGlmarC:y:Y")) != EOF) {
                 switch(c)
 		{
 		case 'k':
@@ -3647,6 +3649,11 @@ cmd_ps(void)
 
 		case 'I':
 			flag |= PS_EXCLUDE_IDLE;
+			break;
+
+		case 'Y':
+			check_ps_exclusive(flag, PS_POLICY_DATA);
+			flag |= PS_POLICY_DATA;
 			break;
 
 		case 'H':
@@ -3822,6 +3829,31 @@ show_ps_data(ulong flag, struct task_context *tc, struct psinfo *psi)
 		}
 	}
 
+	if (flag & PS_POLICY_DATA) {
+		task_active = is_task_active(tc->task);
+
+		if (task_active) {
+			if (hide_offline_cpu(tc->processor))
+				fprintf(fp, "- ");
+			else
+				fprintf(fp, "> ");
+		} else
+			fprintf(fp, "  ");
+
+		fprintf(fp, "%7ld %7ld %3s  %s  %-12s %4d  ",
+			tc->pid, task_to_pid(tc->ptask),
+			task_cpu(tc->processor, buf2, !VERBOSE),
+			task_pointer_string(tc, flag & PS_KSTACKP, buf3),
+			task_policy_name(tc->task),
+			task_prio(tc->task));
+
+		if (is_kernel_thread(tc->task))
+			fprintf(fp, "[%s]\n", tc->comm);
+		else
+			fprintf(fp, "%s\n", tc->comm);
+		return;
+	}
+
 	if (flag & PS_PPID_LIST) {
 		parent_list(tc->task);
 		fprintf(fp, "\n");
@@ -3901,6 +3933,14 @@ show_ps(ulong flag, struct psinfo *psi)
 			flag & PS_KSTACKP ?
 			mkstring(buf, VADDR_PRLEN, CENTER|RJUST, "KSTACKP") :
 			mkstring(buf, VADDR_PRLEN, CENTER, "TASK"));
+
+	if ((flag & PS_POLICY_DATA) && !(flag & PS_NO_HEADER)) {
+		fprintf(fp,
+		    "      PID    PPID  CPU %s  POLICY       PRIO  COMM\n",
+			flag & PS_KSTACKP ?
+			mkstring(buf, VADDR_PRLEN, CENTER|RJUST, "KSTACKP") :
+			mkstring(buf, VADDR_PRLEN, CENTER, "TASK"));
+	}
 
 	if (flag & PS_SHOW_ALL) {
 
@@ -3994,7 +4034,7 @@ show_ps_summary(ulong flag)
 		char string[3];
 	} ps_state[MAX_STATES];
 
-	if (flag & (PS_USER|PS_KERNEL|PS_GROUP|PS_EXCLUDE_IDLE))
+	if (flag & (PS_USER|PS_KERNEL|PS_GROUP|PS_EXCLUDE_IDLE|PS_POLICY_DATA))
 		error(FATAL, "-S option cannot be used with other options\n");
 
 	for (s = 0; s < MAX_STATES; s++)
@@ -6048,6 +6088,28 @@ task_policy(ulong task)
 		policy = 1 << ULONG(tt->task_struct + OFFSET(task_struct_policy));
 
 	return policy;
+}
+
+static const char *
+task_policy_name(ulong task)
+{
+	ulong policy_bit = task_policy(task);
+	struct sched_policy_info *info;
+
+	for (info = sched_policy_info; info->name; info++) {
+		if (policy_bit == (1UL << info->value))
+			return info->name;
+	}
+	return "UNKNOWN";
+}
+
+static int
+task_prio(ulong task)
+{
+	fill_task_struct(task);
+	if (!tt->last_task_read || INVALID_MEMBER(task_struct_prio))
+		return 0;
+	return INT(tt->task_struct + OFFSET(task_struct_prio));
 }
 
 /*
