@@ -9879,6 +9879,8 @@ task_group_offset_init(void)
 		MEMBER_OFFSET_INIT(cgroup_kn, "cgroup", "kn");
 		MEMBER_OFFSET_INIT(kernfs_node_name, "kernfs_node", "name");
 		MEMBER_OFFSET_INIT(kernfs_node_parent, "kernfs_node", "parent");
+		if (INVALID_MEMBER(kernfs_node_parent))
+			MEMBER_OFFSET_INIT(kernfs_node_parent, "kernfs_node", "__parent");
 
 		MEMBER_OFFSET_INIT(task_group_siblings, "task_group", "siblings");
 		MEMBER_OFFSET_INIT(task_group_children, "task_group", "children");
