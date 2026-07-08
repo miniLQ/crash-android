@@ -7933,6 +7933,33 @@ is_string(char *structure, char *member)
         return retval;
 }
 
+int
+is_ptrptr(char *structure, char *member)
+{
+	int retval;
+	char *t;
+	char buf[BUFSIZE];
+
+	retval = FALSE;
+	open_tmpfile();
+	whatis_datatype(structure, STRUCT_REQUEST, pc->tmpfile);
+	rewind(pc->tmpfile);
+	while (fgets(buf, BUFSIZE, pc->tmpfile)) {
+		if (!(t = strstr(buf, "**")))
+			continue;
+		t += 2;
+		if (t != strstr(t, member))
+			continue;
+		t += strlen(member);
+		if (*t == ';') {
+			retval = TRUE;
+			break;
+		}
+	}
+	close_tmpfile();
+
+	return retval;
+}
 
 /*
  *  Generic function for dumping data structure declarations, with a small

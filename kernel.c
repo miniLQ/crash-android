@@ -423,6 +423,18 @@ kernel_init()
 	MEMBER_OFFSET_INIT(task_group_rt_rq, "task_group", "rt_rq");
 	MEMBER_OFFSET_INIT(task_group_parent, "task_group", "parent");
 
+	/*
+	 * task_group.cfs_rq was changed from a pointer array to a per-cpu
+	 * variable at Linux 7.2 (b8fea7af0e40).  Since there is no way to
+	 * determine it, we check whether it is a pointer array or not.
+	 *   -       struct cfs_rq           **cfs_rq;
+	 *   +       struct cfs_rq __percpu  *cfs_rq;
+	 */
+	if (VALID_MEMBER(task_group_cfs_rq)) {
+		if (!is_ptrptr("task_group", "cfs_rq"))
+			kt->flags2 |= PER_CPU_CFS_RQ;
+	}
+
        /*
         *  In 2.4, smp_send_stop() sets smp_num_cpus back to 1
         *  in some, but not all, architectures.  So if a count
@@ -6385,6 +6397,8 @@ dump_kernel_table(int verbose)
 		fprintf(fp, "%sKMOD_PAX", others++ ? "|" : "");
 	if (kt->flags2 & KMOD_MEMORY)
 		fprintf(fp, "%sKMOD_MEMORY", others++ ? "|" : "");
+	if (kt->flags2 & PER_CPU_CFS_RQ)
+		fprintf(fp, "%sPER_CPU_CFS_RQ", others++ ? "|" : "");
 	fprintf(fp, ")\n");
 
         fprintf(fp, "         stext: %lx\n", kt->stext);

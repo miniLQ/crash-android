@@ -691,6 +691,7 @@ struct new_utsname {
 #define KMOD_PAX                  (0x100ULL)
 #define KMOD_MEMORY               (0x200ULL)
 #define IRQ_DESC_TREE_MAPLE       (0x400ULL)
+#define PER_CPU_CFS_RQ            (0x800ULL)
 
 #define XEN()       (kt->flags & ARCH_XEN)
 #define OPENVZ()    (kt->flags & ARCH_OPENVZ)
@@ -5896,6 +5897,7 @@ void parse_for_member_extended(struct datatype_member *, ulong);
 void add_to_downsized(char *);
 int is_downsized(char *);
 int is_string(char *, char *);
+int is_ptrptr(char *, char *);
 struct syment *symbol_complete_match(const char *, struct syment *);
 
 /*  

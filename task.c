@@ -9542,8 +9542,12 @@ print_parent_task_group_fair(void *t, int cpu)
 	readmem(tgi->task_group + OFFSET(task_group_cfs_rq),
 		KVADDR, &cfs_rq_c, sizeof(ulong),
 		"task_group cfs_rq", FAULT_ON_ERROR);
-	readmem(cfs_rq_c + cpu * sizeof(ulong), KVADDR, &cfs_rq_p,
-		sizeof(ulong), "task_group cfs_rq", FAULT_ON_ERROR);
+
+	if (kt->flags2 & PER_CPU_CFS_RQ)
+		cfs_rq_p = cfs_rq_c + kt->__per_cpu_offset[cpu];
+	else
+		readmem(cfs_rq_c + cpu * sizeof(ulong), KVADDR, &cfs_rq_p,
+			sizeof(ulong), "task_group cfs_rq", FAULT_ON_ERROR);
 
 	print_group_header_fair(tgi->depth, cfs_rq_p, tgi);
 	tgi->use = 0;
@@ -9569,8 +9573,13 @@ dump_tasks_in_lower_dequeued_cfs_rq(int depth, ulong cfs_rq, int cpu,
 		readmem(tgi_array[i]->task_group + OFFSET(task_group_cfs_rq),
 			KVADDR, &cfs_rq_c, sizeof(ulong), "task_group cfs_rq",
 			FAULT_ON_ERROR);
-		readmem(cfs_rq_c + cpu * sizeof(ulong), KVADDR, &cfs_rq_p,
-			sizeof(ulong), "task_group cfs_rq", FAULT_ON_ERROR);
+
+		if (kt->flags2 & PER_CPU_CFS_RQ)
+			cfs_rq_p = cfs_rq_c + kt->__per_cpu_offset[cpu];
+		else
+			readmem(cfs_rq_c + cpu * sizeof(ulong), KVADDR, &cfs_rq_p,
+				sizeof(ulong), "task_group cfs_rq", FAULT_ON_ERROR);
+
 		if (cfs_rq == cfs_rq_p)
 			continue;
 
@@ -10433,10 +10442,15 @@ dump_tasks_by_task_group(void)
 			readmem(rt_rq + cpu * sizeof(ulong), KVADDR,
 				&rt_rq_p, sizeof(ulong), "task_group rt_rq",
 				FAULT_ON_ERROR);
-		if (cfs_rq)
-			readmem(cfs_rq + cpu * sizeof(ulong), KVADDR,
-				&cfs_rq_p, sizeof(ulong), "task_group cfs_rq",
-				FAULT_ON_ERROR);
+		if (cfs_rq) {
+			if (kt->flags2 & PER_CPU_CFS_RQ)
+				cfs_rq_p = cfs_rq + kt->__per_cpu_offset[cpu];
+			else
+				readmem(cfs_rq + cpu * sizeof(ulong), KVADDR,
+					&cfs_rq_p, sizeof(ulong),
+					"task_group cfs_rq", FAULT_ON_ERROR);
+		}
+
 		fprintf(fp, "%sCPU %d", displayed++ ? "\n" : "", cpu);
 
 		if (hide_offline_cpu(cpu)) {
