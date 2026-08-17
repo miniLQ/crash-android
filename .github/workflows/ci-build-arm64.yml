@@ -36,13 +36,13 @@ jobs:
     - name: Build crash for ARM64 ramdump
       run: |
         make target=ARM64 -j$(nproc) warn
-        file crash
-        ./crash --version || true
+        file crash-android
+        ./crash-android --version || true
 
     - name: Compress files
       run: |
         ZIP_FILE="${ARTIFACT_NAME}.zip"
-        zip -9 "${ZIP_FILE}" crash
+        zip -9 "${ZIP_FILE}" crash-android
         echo "ZIP_FILE=${ZIP_FILE}" >> $GITHUB_ENV
 
     - name: Upload artifact
