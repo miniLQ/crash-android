@@ -10,6 +10,8 @@ jobs:
   build:
     name: Build crash target=ARM64 (${{ github.event_name }})
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout
