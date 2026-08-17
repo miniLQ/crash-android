@@ -1,0 +1,114 @@
+name: Build crash for ARM64 ramdump on x86_64
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build crash target=ARM64 (${{ github.event_name }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        # When triggered by tag push, the tag ref should be checked out
+        ref: ${{ github.ref }}
+
+    - name: Install deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          make gcc g++ bison flex texinfo wget patch tar zip \
+          build-essential libc-dev autoconf automake \
+          libncurses-dev zlib1g-dev \
+          libgmp-dev libmpfr-dev libmpc-dev
+
+    - name: Compute artifact name
+      id: artifact_name
+      run: |
+        ARTIFACT_NAME="crash-arm64-for-x64-${{ github.run_number }}-${{ github.run_id }}"
+        echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+    - name: Build crash for ARM64 ramdump
+      run: |
+        make target=ARM64 -j$(nproc) warn
+        file crash-android
+        ./crash-android --version || true
+
+    - name: Compress files
+      run: |
+        ZIP_FILE="${ARTIFACT_NAME}.zip"
+        zip -9 "${ZIP_FILE}" crash-android
+        echo "ZIP_FILE=${ZIP_FILE}" >> $GITHUB_ENV
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ${{ env.ZIP_FILE }}
+        retention-days: 30
+        if-no-files-found: error
+
+    # ===== Tag-triggered releases =====
+    - name: Create Release (tag-triggered)
+      if: github.event_name == 'push'
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release crash ARM64 ramdump ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset (tag-triggered)
+      if: github.event_name == 'push'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ env.ZIP_FILE }}
+        asset_name: crash-${{ github.ref_name }}.zip
+        asset_content_type: application/zip
+
+    # ===== Manual-triggered releases =====
+    - name: Generate unique release tag
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        UNIQUE_TAG="manual-crash-arm64-${{ env.DATE }}-${{ github.run_number }}"
+        echo "UNIQUE_TAG=${UNIQUE_TAG}" >> $GITHUB_ENV
+
+    - name: Create Release (manual-triggered)
+      if: github.event_name == 'workflow_dispatch'
+      id: create_release_manual
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.UNIQUE_TAG }}
+        release_name: 🛠️ Manual Build - crash ARM64 ramdump ${{ env.UNIQUE_TAG }}
+        draft: false
+        prerelease: true
+
+    - name: Upload Release Asset (manual-triggered)
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release_manual.outputs.upload_url }}
+        asset_path: ${{ env.ZIP_FILE }}
+        asset_name: crash-manual-build-${{ github.run_number }}.zip
+        asset_content_type: application/zip
+
+    - name: Clean up
+      run: |
+        make target=ARM64 clean || true
