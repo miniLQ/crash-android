@@ -58,19 +58,16 @@ jobs:
       if: github.event_name == 'push'
       id: create_release
       uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
         tag_name: ${{ github.ref_name }}
         release_name: Release crash ARM64 ramdump ${{ github.ref_name }}
         draft: false
         prerelease: false
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload Release Asset (tag-triggered)
       if: github.event_name == 'push'
       uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ${{ env.ZIP_FILE }}
