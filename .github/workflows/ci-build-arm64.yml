@@ -88,19 +88,16 @@ jobs:
       if: github.event_name == 'workflow_dispatch'
       id: create_release_manual
       uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
         tag_name: ${{ env.UNIQUE_TAG }}
         release_name: 🛠️ Manual Build - crash ARM64 ramdump ${{ env.UNIQUE_TAG }}
         draft: false
         prerelease: true
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload Release Asset (manual-triggered)
       if: github.event_name == 'workflow_dispatch'
       uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release_manual.outputs.upload_url }}
         asset_path: ${{ env.ZIP_FILE }}
