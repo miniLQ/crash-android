@@ -51,7 +51,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.ARTIFACT_NAME }}
-        path: ${{ env.ZIP_FILE }}
+        # upload-artifact creates the downloadable ZIP archive itself.
+        # Upload the binary directly to avoid a ZIP nested inside that archive.
+        path: crash-android
         retention-days: 30
         if-no-files-found: error
 
@@ -83,7 +85,7 @@ jobs:
     - name: Generate unique release tag
       if: github.event_name == 'workflow_dispatch'
       run: |
-        UNIQUE_TAG="manual-crash-arm64-${{ env.DATE }}-${{ github.run_number }}"
+        UNIQUE_TAG="manual-crash-arm64-$(date -u +%Y%m%d)-${{ github.run_number }}"
         echo "UNIQUE_TAG=${UNIQUE_TAG}" >> $GITHUB_ENV
 
     - name: Create Release (manual-triggered)
