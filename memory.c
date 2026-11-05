@@ -415,6 +415,7 @@ mem_init(void)
 #define FOLIO_ORDER_V2	2
 #define FOLIO_ORDER_V3	3
 static int folio_order_version;
+static int compound_info_has_mask = FALSE;
 
 /*
  *  Stash a few popular offsets and some basic kernel virtual memory
@@ -548,6 +549,7 @@ vm_init(void)
         MEMBER_OFFSET_INIT(page_compound_head, "page", "compound_head");
 	if (INVALID_MEMBER(page_compound_head))
 		ANON_MEMBER_OFFSET_INIT(page_compound_head, "page", "compound_head");
+	MEMBER_OFFSET_INIT(page_compound_info, "page", "compound_info");
 	MEMBER_OFFSET_INIT(page_private, "page", "private");
 	MEMBER_OFFSET_INIT(page_freelist, "page", "freelist");
 	MEMBER_OFFSET_INIT(page_page_type, "page", "page_type");
@@ -870,6 +872,8 @@ vm_init(void)
 		MEMBER_OFFSET_INIT(kmem_cache_inuse, "kmem_cache", "inuse");
 		MEMBER_OFFSET_INIT(kmem_cache_align, "kmem_cache", "align");
 		MEMBER_OFFSET_INIT(kmem_cache_node, "kmem_cache", "node");
+		if (INVALID_MEMBER(kmem_cache_node))
+			MEMBER_OFFSET_INIT(kmem_cache_per_node, "kmem_cache", "per_node");
 		MEMBER_OFFSET_INIT(kmem_cache_cpu_slab, "kmem_cache", "cpu_slab");
 		MEMBER_OFFSET_INIT(kmem_cache_list, "kmem_cache", "list");
 		MEMBER_OFFSET_INIT(kmem_cache_red_left_pad, "kmem_cache", "red_left_pad");
@@ -921,7 +925,12 @@ vm_init(void)
 			if (INVALID_MEMBER(page_objects))
 				ANON_MEMBER_OFFSET_INIT(page_objects, "slab", "objects");
 		}
-		if (VALID_MEMBER(kmem_cache_node)) {
+		if (VALID_MEMBER(kmem_cache_per_node)) { /* Linux 7.1 and later */
+			MEMBER_OFFSET_INIT(kmem_cache_per_node_ptrs_node,
+					"kmem_cache_per_node_ptrs", "node");
+			STRUCT_SIZE_INIT(kmem_cache_per_node_ptrs, "kmem_cache_per_node_ptrs");
+			vt->flags |= CONFIG_NUMA;
+		} else if (VALID_MEMBER(kmem_cache_node)) {
                 	ARRAY_LENGTH_INIT(len, NULL, "kmem_cache.node", NULL, 0);
 			vt->flags |= CONFIG_NUMA;
 		}
@@ -1352,6 +1361,17 @@ vm_init(void)
                 vt->page_hash_table_len = 0;
         } else if (CRASHDEBUG(1))
 		error(NOTE, "page_hash_table does not exist in this kernel\n");
+
+	/*
+	 * on Linux 7.1 and later, zone.vmemmap_tails is defined only when
+	 * CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP is enabled.
+	 */
+#define is_power_of_2(n) ((n) > 0 && ((n) & ((n) - 1)) == 0)
+	if (VALID_MEMBER(page_compound_info) &&
+	    is_power_of_2(SIZE(page)) && MEMBER_EXISTS("zone", "vmemmap_tails"))
+		compound_info_has_mask = TRUE;
+	if (CRASHDEBUG(1))
+		error(NOTE, "compound_info_has_mask = %d\n", compound_info_has_mask);
 
 	kmem_cache_init();
 
@@ -5653,10 +5673,11 @@ PG_slab_flag_init(void)
 		}
 	}
 
-	if (VALID_MEMBER(page_compound_head)) {
+	if (VALID_MEMBER(page_compound_head) || VALID_MEMBER(page_compound_info)) {
 		if (CRASHDEBUG(2))
 			fprintf(fp, 
-			    "PG_head_tail_mask: (UNUSED): page.compound_head exists!\n");
+			    "PG_head_tail_mask: (UNUSED): page.compound_head or "
+			    "page.compound_info exists!\n");
 	} else if (vt->flags & KMALLOC_SLUB) {
 		/* 
 		 *  PG_slab and the following are hardwired for 
@@ -9869,7 +9890,8 @@ vaddr_to_kmem_cache(ulong vaddr, char *buf, int verbose)
 			&page_flags, sizeof(ulong), "page.flags",
 			FAULT_ON_ERROR);
 		if (!page_slab(page, page_flags)) {
-			if (((vt->flags & KMALLOC_SLUB) || VALID_MEMBER(page_compound_head)) ||
+			if (((vt->flags & KMALLOC_SLUB) || VALID_MEMBER(page_compound_head) ||
+			    VALID_MEMBER(page_compound_info)) ||
 			    ((vt->flags & KMALLOC_COMMON) &&
 			    VALID_MEMBER(page_slab) && VALID_MEMBER(page_first_page))) {
 				readmem(compound_head(page)+OFFSET(page_flags), KVADDR,
@@ -9884,7 +9906,8 @@ vaddr_to_kmem_cache(ulong vaddr, char *buf, int verbose)
 
 	if ((vt->flags & KMALLOC_SLUB) ||
 	    ((vt->flags & KMALLOC_COMMON) && VALID_MEMBER(page_slab) && 
-	    (VALID_MEMBER(page_compound_head) || VALID_MEMBER(page_first_page)))) {
+	    (VALID_MEMBER(page_compound_head) || VALID_MEMBER(page_compound_info) ||
+	     VALID_MEMBER(page_first_page)))) {
                 readmem(compound_head(page)+OFFSET(page_slab),
                         KVADDR, &cache, sizeof(void *),
                         "page.slab", FAULT_ON_ERROR);
@@ -9915,7 +9938,8 @@ is_slab_overload_page(ulong vaddr, ulong *page_head, char *buf)
 
         if ((vt->flags & SLAB_OVERLOAD_PAGE) &&
 	    is_page_ptr(vaddr, NULL) && VALID_MEMBER(page_slab) && 
-	    (VALID_MEMBER(page_compound_head) || VALID_MEMBER(page_first_page))) {
+	    (VALID_MEMBER(page_compound_head) || VALID_MEMBER(page_compound_info) ||
+	     VALID_MEMBER(page_first_page))) {
                 readmem(compound_head(vaddr)+OFFSET(page_slab),
                         KVADDR, &cache, sizeof(void *),
                         "page.slab", FAULT_ON_ERROR);
@@ -9955,7 +9979,8 @@ vaddr_to_slab(ulong vaddr)
 
 	slab = 0;
 
-        if ((vt->flags & KMALLOC_SLUB) || VALID_MEMBER(page_compound_head))
+	if ((vt->flags & KMALLOC_SLUB) || VALID_MEMBER(page_compound_head) ||
+	    VALID_MEMBER(page_compound_info))
 		slab = compound_head(page);
 	else if (vt->flags & SLAB_OVERLOAD_PAGE)
 		slab = compound_head(page);
@@ -19548,9 +19573,13 @@ get_kmem_cache_slub_data(long cmd, struct meminfo *si)
 	for (n = 0; n < vt->numnodes; n++) {
 		if (vt->flags & CONFIG_NUMA) {
 			nt = &vt->node_table[n];
-			node_ptr = ULONG(si->cache_buf +
-				OFFSET(kmem_cache_node) +
-				(sizeof(void *) * nt->node_id));
+			if (VALID_MEMBER(kmem_cache_per_node)) /* Linux 7.1 and later */
+				node_ptr = ULONG(si->cache_buf + OFFSET(kmem_cache_per_node) +
+						(SIZE(kmem_cache_per_node_ptrs) * nt->node_id) +
+						OFFSET(kmem_cache_per_node_ptrs_node));
+			else
+				node_ptr = ULONG(si->cache_buf + OFFSET(kmem_cache_node) +
+						(sizeof(void *) * nt->node_id));
 		} else
 			node_ptr = si->cache + 
 				OFFSET(kmem_cache_local_node);
@@ -20233,11 +20262,21 @@ get_kmem_cache_child_list(ulong **cache_buf, ulong root)
 static ulong
 compound_head(ulong page)
 {
-	ulong flags, first_page, compound_head;
+	ulong flags, first_page, compound_head, info, mask;
 
 	first_page = page;
 
-	if (VALID_MEMBER(page_compound_head)) {
+	if (VALID_MEMBER(page_compound_info)) {
+		if (readmem(page + OFFSET(page_compound_info), KVADDR, &info,
+		    sizeof(ulong), "page.compound_info", RETURN_ON_ERROR)) {
+			if (compound_info_has_mask) {
+				mask = (info & 1) - 1;
+				mask |= info;
+				first_page = page & mask;
+			} else if (info & 1)
+				first_page = info - 1;
+		}
+	} else if (VALID_MEMBER(page_compound_head)) {
 		if (readmem(page+OFFSET(page_compound_head), KVADDR, &compound_head, 
 		    sizeof(ulong), "page.compound_head", RETURN_ON_ERROR)) {
 			if (compound_head & 1)

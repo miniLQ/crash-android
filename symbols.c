@@ -444,6 +444,7 @@ check_gnu_debuglink(bfd *bfd)
 	return FALSE;
 
 reset_bfd:
+	st->bfd_orig = st->bfd;
 
         if ((st->bfd = bfd_openr(pc->debuginfo_file, NULL)) == NULL)
                 error(FATAL, "cannot open object file: %s\n", 
@@ -1085,12 +1086,16 @@ symbol_value_from_proc_kallsyms(char *symname)
 
 /*
  *  Install all static kernel symbol values into the symval_hash.
+ *  Uses a dynamically-allocated tails[] array for O(1) tail insertion.
  */
 static void
 symval_hash_init(void)
 {
 	int index;
-	struct syment *sp, *sph;
+	struct syment *sp, **tails;
+
+	tails = (struct syment **)GETBUF(SYMVAL_HASH * sizeof(struct syment *));
+	BZERO(tails, SYMVAL_HASH * sizeof(struct syment *));
 
         for (sp = st->symtable; sp < st->symend; sp++) {
 		index = SYMVAL_HASH_INDEX(sp->value);
@@ -1098,15 +1103,12 @@ symval_hash_init(void)
 		if (st->symval_hash[index].val_hash_head == NULL) {
 			st->symval_hash[index].val_hash_head = sp;
 			st->symval_hash[index].val_hash_last = sp;
-			continue;
-		}
-
-		sph = st->symval_hash[index].val_hash_head; 
-		while (sph->val_hash_next)
-			sph = sph->val_hash_next;
-				
-		sph->val_hash_next = sp;
+		} else
+			tails[index]->val_hash_next = sp;
+		tails[index] = sp;
 	}
+
+	FREEBUF(tails);
 }
 
 /*
@@ -7933,6 +7935,33 @@ is_string(char *structure, char *member)
         return retval;
 }
 
+int
+is_ptrptr(char *structure, char *member)
+{
+	int retval;
+	char *t;
+	char buf[BUFSIZE];
+
+	retval = FALSE;
+	open_tmpfile();
+	whatis_datatype(structure, STRUCT_REQUEST, pc->tmpfile);
+	rewind(pc->tmpfile);
+	while (fgets(buf, BUFSIZE, pc->tmpfile)) {
+		if (!(t = strstr(buf, "**")))
+			continue;
+		t += 2;
+		if (t != strstr(t, member))
+			continue;
+		t += strlen(member);
+		if (*t == ';') {
+			retval = TRUE;
+			break;
+		}
+	}
+	close_tmpfile();
+
+	return retval;
+}
 
 /*
  *  Generic function for dumping data structure declarations, with a small
@@ -10477,6 +10506,7 @@ dump_offset_table(char *spec, ulong makestruct)
                 OFFSET(page_active));
         fprintf(fp, "            page_compound_head: %ld\n",
                 OFFSET(page_compound_head));
+	fprintf(fp, "            page_compound_info: %ld\n", OFFSET(page_compound_info));
         fprintf(fp, "                  page_private: %ld\n", OFFSET(page_private));
 	fprintf(fp, "                page_page_type: %ld\n",
 		OFFSET(page_page_type));
@@ -10904,6 +10934,9 @@ dump_offset_table(char *spec, ulong makestruct)
                 OFFSET(kmem_cache_oo));
         fprintf(fp, "             kmem_cache_random: %ld\n",
                 OFFSET(kmem_cache_random));
+	fprintf(fp, "           kmem_cache_per_node: %ld\n", OFFSET(kmem_cache_per_node));
+
+	fprintf(fp, " kmem_cache_per_node_ptrs_node: %ld\n", OFFSET(kmem_cache_per_node_ptrs_node));
 
         fprintf(fp, "    kmem_cache_node_nr_partial: %ld\n",
                 OFFSET(kmem_cache_node_nr_partial));
@@ -12015,6 +12048,7 @@ dump_offset_table(char *spec, ulong makestruct)
         fprintf(fp, "                    kmem_cache: %ld\n", SIZE(kmem_cache));
         fprintf(fp, "               kmem_cache_node: %ld\n", SIZE(kmem_cache_node));
         fprintf(fp, "                kmem_cache_cpu: %ld\n", SIZE(kmem_cache_cpu));
+	fprintf(fp, "      kmem_cache_per_node_ptrs: %ld\n", SIZE(kmem_cache_per_node_ptrs));
 
         fprintf(fp, "              swap_info_struct: %ld\n", 
 		SIZE(swap_info_struct));

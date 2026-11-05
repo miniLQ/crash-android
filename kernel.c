@@ -29,6 +29,9 @@
 #endif
 #include "bfd.h"
 
+#define KERNEL_VERSION_MIN '2'
+#define KERNEL_VERSION_MAX '7'  /* latest linux mainline kernel major number */
+
 static void do_module_cmd(ulong, char *, ulong, char *, char *);
 static void show_module_taint(void);
 static char *find_module_objfile(char *, char *, char *);
@@ -103,6 +106,30 @@ static void dump_printk_safe_seq_buf(int);
 static void check_vmcoreinfo(void);
 static int is_pvops_xen(void);
 static int get_linux_banner_from_vmlinux(char *, size_t);
+
+static bool kernel_version_str_sanity_check(char *buf)
+{
+	int n;
+	char *p;
+
+	if (!buf)
+		return FALSE;
+
+	p = strstr(buf, "Linux version ");
+	if (!p)
+		return FALSE;
+
+	n = strlen(p);
+
+	if (n < 17) /* "Linux version " (14) + "x.y" (3) = 17 */
+		return FALSE;
+
+	if (p[14] >= KERNEL_VERSION_MIN && p[14] <= KERNEL_VERSION_MAX
+			&& p[15] == '.'	&& p[16] >= '0' && p[16] <= '9')
+		return TRUE;
+
+	return FALSE;
+}
 
 /*
  * Determine Andriod GKI vmcore by reading "android" from ut->release.
@@ -422,6 +449,18 @@ kernel_init()
 	MEMBER_OFFSET_INIT(task_group_cfs_rq, "task_group", "cfs_rq");
 	MEMBER_OFFSET_INIT(task_group_rt_rq, "task_group", "rt_rq");
 	MEMBER_OFFSET_INIT(task_group_parent, "task_group", "parent");
+
+	/*
+	 * task_group.cfs_rq was changed from a pointer array to a per-cpu
+	 * variable at Linux 7.2 (b8fea7af0e40).  Since there is no way to
+	 * determine it, we check whether it is a pointer array or not.
+	 *   -       struct cfs_rq           **cfs_rq;
+	 *   +       struct cfs_rq __percpu  *cfs_rq;
+	 */
+	if (VALID_MEMBER(task_group_cfs_rq)) {
+		if (!is_ptrptr("task_group", "cfs_rq"))
+			kt->flags2 |= PER_CPU_CFS_RQ;
+	}
 
        /*
         *  In 2.4, smp_send_stop() sets smp_num_cpus back to 1
@@ -1407,11 +1446,7 @@ verify_namelist()
 	found = FALSE;
 	sprintf(buffer3, "(unknown)");
         while (fgets(buffer, (BUFSIZE/2)-1, pipe)) {
-		if (!strstr(buffer, "Linux version 2.") &&
-		    !strstr(buffer, "Linux version 3.") &&
-		    !strstr(buffer, "Linux version 4.") &&
-		    !strstr(buffer, "Linux version 5.") &&
-		    !strstr(buffer, "Linux version 6."))
+		if (!kernel_version_str_sanity_check(buffer))
 			continue;
 
                 if (strstr(buffer, kt->proc_version)) {
@@ -5998,11 +6033,7 @@ debug_kernel_version(char *namelist)
 
 	argc = 0;
         while (fgets(buf, BUFSIZE-1, pipe)) {
-                if (!strstr(buf, "Linux version 2.") &&
-		    !strstr(buf, "Linux version 3.") &&
-		    !strstr(buf, "Linux version 4.") &&
-		    !strstr(buf, "Linux version 5.") &&
-		    !strstr(buf, "Linux version 6."))
+		if (!kernel_version_str_sanity_check(buf))
                         continue;
 
 		argc = parse_line(buf, arglist); 
@@ -6385,6 +6416,8 @@ dump_kernel_table(int verbose)
 		fprintf(fp, "%sKMOD_PAX", others++ ? "|" : "");
 	if (kt->flags2 & KMOD_MEMORY)
 		fprintf(fp, "%sKMOD_MEMORY", others++ ? "|" : "");
+	if (kt->flags2 & PER_CPU_CFS_RQ)
+		fprintf(fp, "%sPER_CPU_CFS_RQ", others++ ? "|" : "");
 	fprintf(fp, ")\n");
 
         fprintf(fp, "         stext: %lx\n", kt->stext);
@@ -12155,6 +12188,7 @@ check_vmcoreinfo(void)
 static
 int get_linux_banner_from_vmlinux(char *buf, size_t size)
 {
+	struct bfd *bfd = st->bfd_orig ? : st->bfd;
 	struct bfd_section *sect;
 	long offset;
 	ulong start_rodata;
@@ -12166,7 +12200,7 @@ int get_linux_banner_from_vmlinux(char *buf, size_t size)
 	else
 		return FALSE;
 
-	sect = bfd_get_section_by_name(st->bfd, ".rodata");
+	sect = bfd_get_section_by_name(bfd, ".rodata");
 	if (!sect)
 		return FALSE;
 
@@ -12178,7 +12212,7 @@ int get_linux_banner_from_vmlinux(char *buf, size_t size)
 	 */
 	offset = symbol_value("linux_banner") - start_rodata;
 
-	if (!bfd_get_section_contents(st->bfd,
+	if (!bfd_get_section_contents(bfd,
 				      sect,
 				      buf,
 				      offset,
@@ -12231,3 +12265,69 @@ out:
 	pc->error_fp = error_fp_save;
 }
 #endif
+
+static int *cpu_to_nid_map;
+
+int
+cpu_to_nid(int cpu)
+{
+	if (!cpu_to_nid_map || cpu < 0 || cpu >= kt->cpus)
+		return -1;
+	if (vt->numnodes == 1)
+		return 0;
+	return cpu_to_nid_map[cpu];
+}
+
+static void
+cpu_to_nid_init(void)
+{
+	int i, j;
+	int fd;
+	char buf[64];
+
+	cpu_to_nid_map = malloc(kt->cpus * sizeof(int));
+	if (vt->numnodes == 1)
+		return;
+
+	memset(cpu_to_nid_map, -1, kt->cpus * sizeof(int));
+
+	if (ACTIVE()) {
+		for (i = 0; i < kt->cpus; i++) {
+			for (j = 0; j < vt->numnodes; j++) {
+				memset(buf, 0, sizeof(buf));
+				sprintf(buf, "/sys/devices/system/cpu/cpu%d/node%d", i, j);
+
+				fd = open(buf, O_RDONLY);
+				if (fd > 0) {
+					cpu_to_nid_map[i] = j;
+					close(fd);
+					break;
+				}
+			}
+		}
+	} else {
+		int cpu;
+
+		if (symbol_exists("numa_node")) {
+			ulong base = symbol_value("numa_node");
+
+			for (cpu = 0; cpu < kt->cpus; cpu++) {
+				ulong addr = base + kt->__per_cpu_offset[cpu];
+				int nid;
+
+				if (readmem(addr, KVADDR, &nid, sizeof(int),
+				    "numa_node", RETURN_ON_ERROR|QUIET))
+					cpu_to_nid_map[cpu] = nid;
+			}
+		} else {
+			error(WARNING,
+			    "numa_node symbol not found in vmcore\n");
+		}
+	}
+}
+
+void
+numa_init(void)
+{
+	cpu_to_nid_init();
+}

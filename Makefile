@@ -98,7 +98,7 @@ GENERIC_HFILES=defs.h xen_hyper_defs.h xen_dom0.h
 MCORE_HFILES=va_server.h vas_crash.h
 REDHAT_HFILES=netdump.h diskdump.h makedumpfile.h xendump.h kvmdump.h qemu-load.h vmcore.h
 LKCD_DUMP_HFILES=lkcd_vmdump_v1.h lkcd_vmdump_v2_v3.h lkcd_dump_v5.h \
-        lkcd_dump_v7.h lkcd_dump_v8.h
+        lkcd_dump_v7.h lkcd_dump_v8.h lkcd_x86_64_pt_regs.h
 LKCD_OBSOLETE_HFILES=lkcd_fix_mem.h
 LKCD_TRACE_HFILES=lkcd_x86_trace.h
 IBM_HFILES=ibm_common.h
@@ -258,11 +258,20 @@ GDB_FLAGS=
 # TARGET_CFLAGS will be configured automatically by configure
 TARGET_CFLAGS=
 
-CRASH_CFLAGS=-g -D${TARGET} ${TARGET_CFLAGS} ${GDB_FLAGS} ${CFLAGS}
+#
+# Debug information (-g) is not built by default.  Use "make DEBUG=1" to
+# build both crash and the embedded gdb module with debug information.
+#
+ifeq ($(DEBUG),1)
+DEBUG_CFLAGS=-g
+else
+DEBUG_CFLAGS=
+endif
+export DEBUG
+
+CRASH_CFLAGS=$(DEBUG_CFLAGS) -D${TARGET} ${TARGET_CFLAGS} ${GDB_FLAGS} ${CFLAGS}
 
 GPL_FILES=
-TAR_FILES=${SOURCE_FILES} Makefile ${GPL_FILES} README .rh_rpm_package crash.8 \
-	${EXTENSION_SOURCE_FILES} ${MEMORY_DRIVER_FILES}
 CSCOPE_FILES=${SOURCE_FILES}
 
 READLINE_DIRECTORY=./${GDB}/readline/readline
@@ -307,23 +316,110 @@ all: make_configure
 	@$(MAKE) gdb_merge
 #	@$(MAKE) extensions
 
+#
+# Summarize the targets and build options described in the README.
+#
+.PHONY: help
+help:
+	@echo 'Usage: make [target] [option[=value] ...]'
+	@echo ''
+	@echo 'Build targets:'
+	@echo '  (default)           build crash and the embedded gdb for this host'
+	@echo '  extensions          build the extension modules (extensions/)'
+	@echo '  memory_driver       build the memory driver module (memory_driver/)'
+	@echo '  gdb                 rebuild the gdb objects crash adds, then relink'
+	@echo '  install             install the crash binary under DESTDIR (default /usr/bin)'
+	@echo ''
+	@echo 'Cleanup targets:'
+	@echo '  clean               remove crash objects, crashlib.a and the crash binary;'
+	@echo '                      the configured gdb directory is kept'
+	@echo '  distclean           remove everything a build creates, including the'
+	@echo '                      extracted gdb tree, Makefile.inc, configure,'
+	@echo '                      build_data.c and the release tarball/spec/source RPM'
+	@echo ''
+	@echo 'Build options:'
+	@echo '  target=<arch>       build crash to analyze dumpfiles of another'
+	@echo '                      architecture (default: this host).  Cross targets'
+	@echo '                      are limited to these host/target= combinations:'
+	@echo '                          X86_64 -> X86 ARM ARM64 MIPS PPC64 RISCV64'
+	@echo '                                    LOONGARCH64'
+	@echo '                          X86    -> ARM MIPS'
+	@echo '                          PPC64  -> PPC'
+	@echo '                          ARM64  -> X86_64'
+	@echo '                          other  -> native only; ALPHA, S390, S390X,'
+	@echo '                                    SPARC64, MIPS64 and IA64 must be'
+	@echo '                                    built on that host'
+	@echo '  CROSS_COMPILE=<pfx> cross compile the crash binary itself, for example'
+	@echo '                      make CROSS_COMPILE=aarch64-linux-gnu- -j$$(nproc)'
+	@echo '  DEBUG=1             build crash and the embedded gdb with debug info (-g)'
+	@echo '  warn                enable the #WARNING_OPTIONS flags from the Makefile'
+	@echo '  Warn                as warn, plus -Werror (note the capital W)'
+	@echo '  nowarn              use neither; the choice is remembered'
+	@echo '  lzo                 add support for LZO-compressed dumpfiles'
+	@echo '  snappy              add support for snappy-compressed dumpfiles'
+	@echo '  zstd                add support for zstd-compressed dumpfiles'
+	@echo ''
+	@echo 'Packaging targets (normally run as root):'
+	@echo '  release             create the source tarball crash-<version>.tar.gz'
+	@echo '  srpm                create crash.spec and the source RPM from that tarball'
+	@echo '  files               print the tarball file list'
+	@echo ''
+	@echo 'Other targets:'
+	@echo '  ctags               build the ctags reference'
+	@echo '  cscope              build the cscope reference'
+	@echo '  dis                 write a disassembly of the crash binary to crash.dis'
+	@echo '  valgrind            build crash for valgrind memcheck'
+	@echo ''
+	@echo 'Notes:'
+	@echo '  - Build in parallel, for example: make -j$$(nproc)'
+	@echo '  - The embedded gdb takes most of the build time; keeping its configured'
+	@echo '    directory (plain "make clean") avoids rebuilding it.'
+	@echo '  - Changing target=, DEBUG=1 or a feature option needs make clean (or'
+	@echo '    make distclean) first, since make cannot see that -D or -g changed.'
+	@echo '  - See README for the prerequisites and the full description.'
+
+#
+# The embedded gdb is built for the selected target only -- gdb, bfd and
+# opcodes already default to that -- without the full-screen TUI and
+# without the libctf and libbacktrace libraries, none of which crash uses.
+#
+# .configured is written only after the gdb configure script has finished.
+# gdb's config.status is created near the start of its configure run, so
+# testing for that would mistake a configure interrupted with Ctrl-C for a
+# complete one, and the incremental path below would then fail with
+# "No targets specified and no makefile found".
+#
 gdb_merge: force
 	@if [ ! -f ${GDB}/README ]; then \
 	  $(MAKE) gdb_unzip; fi
 	@echo "${LDFLAGS} -lz -ldl -rdynamic" > ${GDB}/gdb/mergelibs
 	@echo "../../${PROGRAM} ../../${PROGRAM}lib.a" > ${GDB}/gdb/mergeobj
 	@rm -f ${PROGRAM}
-	@if [ ! -f ${GDB}/config.status ]; then \
+	@if [ ! -f ${GDB}/.configured ]; then \
 	  (cd ${GDB}; ./configure ${GDB_CONF_FLAGS} --with-separate-debug-dir=/usr/lib/debug \
-	    --with-bugurl="" --with-expat=no --with-python=no --disable-sim; \
+	    --with-bugurl="" --with-expat=no --with-python=no --disable-sim \
+	    --disable-tui --disable-libctf --disable-libbacktrace && \
+	  touch .configured; \
 	  $(MAKE) CRASH_TARGET=${TARGET}; echo ${TARGET} > crash.target) \
 	else $(MAKE) rebuild; fi
 	@if [ ! -f ${PROGRAM} ]; then \
 	  echo; echo "${PROGRAM} build failed"; \
+	  if [ ! -f ${GDB}/.configured ]; then \
+	    echo; \
+	    echo "The embedded gdb was not configured completely, which is what an"; \
+	    echo "interrupted build leaves behind; \"make distclean\" removes the"; \
+	    echo "build products so the build can start over cleanly."; fi; \
 	  echo; exit 1; fi
 	@mv -f ${PROGRAM} crash-android
 
 rebuild:
+	@if [ ! -f ${GDB}/gdb/Makefile ]; then \
+	  echo; \
+	  echo "${GDB}/gdb/Makefile does not exist, so the embedded gdb was left"; \
+	  echo "unconfigured -- an interrupted build leaves it in this state."; \
+	  echo "Remove the build products and start over with:"; \
+	  echo; echo "    make distclean"; \
+	  echo; exit 1; fi
 	@if [ ! -f ${GDB}/${GDB}.patch ]; then \
 	  touch ${GDB}/${GDB}.patch; fi
 	@if [ -f ${GDB}.patch ] && [ -s ${GDB}.patch ] && \
@@ -371,6 +467,20 @@ do_clean:
 	@$(MAKE) -C extensions -i clean
 	@$(MAKE) -C memory_driver -i clean
 
+#
+# Remove everything a build creates: the objects and binaries handled by
+# "clean", the generated configure override file, the files generated by
+# crash's configure, every extracted gdb source tree (which takes all of
+# the embedded gdb object files with it), and the release tarball, spec
+# and source RPM.
+#
+distclean: clean
+	@$(MAKE) do_distclean
+
+do_distclean:
+	rm -rf ${GDB} gdb-*/ gdb.files build_data.c configure Makefile.inc Makefile.inc.new
+	rm -f ${PROGRAM}-*.tar.gz ${PROGRAM}.spec ${PROGRAM}-*.src.rpm
+
 build_data.o: force
 	${CC} -c ${CRASH_CFLAGS} build_data.c ${WARNING_OPTIONS} ${WARNING_ERROR}
 
@@ -378,9 +488,6 @@ install:
 	/usr/bin/install -d ${INSTALLDIR}
 	/usr/bin/install ${PROGRAM} ${INSTALLDIR}
 #	/usr/bin/install ${PROGRAM}d ${INSTALLDIR}
-
-unconfig: make_configure
-	@./configure -u
 
 warn Warn nowarn lzo snappy zstd valgrind: all
 	@true  #dummy
@@ -623,31 +730,29 @@ files: make_configure
 	@./configure -q -b
 	@$(MAKE) show_files
 
-gdb_files: make_configure
-	@./configure -q -b
-	@echo ${GDB_FILES} ${GDB_PATCH_FILES}
-
+#
+# The list of files which make up a release tarball.  The embedded gdb's
+# files and its patch file(s) are included through GDB_FILES and
+# GDB_PATCH_FILES, which is why "make files" still lists them even though
+# there is no separate gdb_files target.
+#
 show_files:
-	@if [ -f ${PROGRAM}  ]; then \
-		./${PROGRAM} --no_scroll --no_crashrc -h README > README; fi
 	@echo ${SOURCE_FILES} Makefile ${GDB_FILES} ${GDB_PATCH_FILES} ${GPL_FILES} README \
-	.rh_rpm_package crash.8 ${EXTENSION_SOURCE_FILES} ${MEMORY_DRIVER_FILES}
+	crash-release crash.8 ${EXTENSION_SOURCE_FILES} ${MEMORY_DRIVER_FILES}
 
 ctags:
 	ctags ${SOURCE_FILES}
 
-tar: make_configure
-	@./configure -q -b
-	@$(MAKE) do_tar
-
-do_tar:
-	@if [ -f ${PROGRAM}  ]; then \
-		./${PROGRAM} --no_scroll --no_crashrc -h README > README; fi
-	tar cvzf ${PROGRAM}.tar.gz ${TAR_FILES} ${GDB_FILES} ${GDB_PATCH_FILES}
-	@echo; ls -l ${PROGRAM}.tar.gz
-
 VERSION=
 RELEASE=0
+
+#
+# Configure writes the variables it manages to Makefile.inc, which is
+# included here so that the generated values override the defaults above.
+# Removing that file returns the build to its default configuration;
+# "make distclean" does that for you.
+#
+-include Makefile.inc
 
 release: make_configure
 	@if [ "`id --user`" != "0" ]; then \
@@ -665,18 +770,16 @@ release_configure: make_configure
 
 do_release:
 	@echo "CRASH VERSION: ${VERSION}  GDB VERSION: ${GDB}"
-	@if [ ! -f .rh_rpm_package  ]; then \
-		echo "no .rh_rpm_package exists!"; exit 1; fi
-	@chmod 666 .rh_rpm_package
+	@if [ ! -f crash-release  ]; then \
+		echo "no crash-release exists!"; exit 1; fi
+	@chmod 666 crash-release
 	@rm -rf ./RELDIR; mkdir ./RELDIR; mkdir ./RELDIR/${PROGRAM}-${VERSION}
 	@rm -f ${PROGRAM}-${VERSION}.tar.gz 
-	@rm -f ${PROGRAM}-${VERSION}-${RELEASE}.src.rpm
 	@chown root ./RELDIR/${PROGRAM}-${VERSION}
 	@tar cf - ${SOURCE_FILES} Makefile ${GDB_FILES} ${GDB_PATCH_FILES} ${GPL_FILES} \
-	.rh_rpm_package crash.8 ${EXTENSION_SOURCE_FILES} ${MEMORY_DRIVER_FILES} | \
+	crash-release crash.8 ${EXTENSION_SOURCE_FILES} ${MEMORY_DRIVER_FILES} | \
 	(cd ./RELDIR/${PROGRAM}-${VERSION}; tar xf -)
 	@cp ${GDB}.tar.gz ./RELDIR/${PROGRAM}-${VERSION}
-	@./${PROGRAM} --no_scroll --no_crashrc -h README > README
 	@cp README ./RELDIR/${PROGRAM}-${VERSION}/README
 	@(cd ./RELDIR; find . -exec chown root {} ";")
 	@(cd ./RELDIR; find . -exec chgrp root {} ";")
@@ -687,7 +790,15 @@ do_release:
 	@rm -rf ./RELDIR
 	@echo
 	@ls -l ${PROGRAM}-${VERSION}.tar.gz
-	@./configure -s -u > ${PROGRAM}.spec
+
+#
+# Create the source RPM from the tarball built by "make release".
+#
+srpm: make_configure
+	@if [ "${VERSION}" = "" ] || [ ! -f ${PROGRAM}-${VERSION}.tar.gz ]; then \
+	  echo "make srpm: run \"make release\" first"; echo; exit 1; fi
+	@rm -f ${PROGRAM}-${VERSION}-${RELEASE}.src.rpm
+	@./configure -s > ${PROGRAM}.spec
 	@if [ -s ${PROGRAM}.spec ]; then \
 	  rm -rf ./RPMBUILD; \
 	  mkdir -p ./RPMBUILD/SOURCES ./RPMBUILD/SPECS ./RPMBUILD/SRPMS; \
@@ -702,23 +813,11 @@ do_release:
 	   ls -l ${PROGRAM}-${VERSION}-${RELEASE}.src.rpm; \
 	fi
 
-ref:
-	$(MAKE) ctags cscope
-
 cscope:
 	rm -f cscope.files cscope.out
 	for FILE in ${SOURCE_FILES}; do \
 	echo $$FILE >> cscope.files; done
 	cscope -b -f cscope.out
-
-glink: make_configure
-	@./configure -q -b
-	rm -f gdb
-	ln -s ${GDB}/gdb gdb
-	(cd ${GDB}/gdb; rm -f ${PROGRAM}; ln -s ../../${PROGRAM} ${PROGRAM})
-
-name:
-	@echo ${PROGRAM}
 
 dis:
 	objdump --disassemble --line-numbers ${PROGRAM} > ${PROGRAM}.dis

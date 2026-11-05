@@ -80,9 +80,25 @@
 
   To build the crash utility: 
 
-    $ tar -xf crash-9.0.2.tar.gz
-    $ cd crash-9.0.2
+    $ tar -xf crash-9.0.x.tar.gz
+    $ cd crash-9.0.x
     $ make
+
+  By default, debug information (-g) is not built into either crash or the
+  embedded gdb module.  To build both with debug information:
+
+    $ make DEBUG=1
+
+  A summary of the available make targets and build options is printed by:
+
+    $ make help
+
+  To start over, use "make distclean", which removes every build product, the
+  generated configuration, the extracted gdb source directory and any release
+  tarball/spec/source RPM that is present.  Plain "make clean" keeps the
+  configured gdb directory, so rebuilding after editing crash's sources stays
+  fast.  A build never modifies the distributed Makefile; the configured values
+  are kept in the generated Makefile.inc file.
 
   To cross compile the crash utility for aarch64 on x86_64:
     $ make CROSS_COMPILE=aarch64-linux-gnu- -j`nproc`
@@ -92,6 +108,10 @@
   The initial build will take several minutes  because the embedded gdb module
   must be configured and built.  Alternatively, the crash source RPM file
   may be installed and built, and the resultant crash binary RPM file installed.
+
+  To create a source RPM from this tree, run "make release" as root, which
+  creates the crash-<version>.tar.gz source tarball, and then "make srpm",
+  which creates the crash.spec file and the source RPM from that tarball.
 
   The crash binary can only be used on systems of the same architecture as
   the host build system.  There are a few optional manners of building the
@@ -113,6 +133,8 @@
      riscv64 dumpfiles may be built by typing "make target=RISCV64".
   o  On an x86_64 host, an x86_64 binary that can be used to analyze
      loongarch64 dumpfiles may be built by typing "make target=LOONGARCH64".
+  o  On an arm64 host, an arm64 binary that can be used to analyze
+     x86_64 dumpfiles may be built by typing "make target=X86_64".
 
   Traditionally when vmcores are compressed via the makedumpfile(8) facility
   the libz compression library is used, and by default the crash utility
@@ -128,6 +150,11 @@
   special "make" targets only have to be entered one time; all subsequent
   builds will follow suit.
 
+  Changing the target ("make target=...") or switching one of the optional
+  features on an existing build tree does not recompile objects that are
+  already up to date, since make cannot see that the compiler flags changed;
+  run "make distclean" first to start from a clean tree.
+
   If the tool is run against a kernel dumpfile, two arguments are required, the
   uncompressed kernel name and the kernel dumpfile name.  
 
@@ -137,7 +164,7 @@
   If neither /dev/mem or /dev/crash are available, then /proc/kcore will be
   be used as the live memory source.  If /proc/kcore is also restricted, then
   the Red Hat /dev/crash driver may be compiled and installed; its source
-  is included in the crash-9.0.2/memory_driver subdirectory.
+  is included in the crash-9.0.x/memory_driver subdirectory.
 
   If the kernel file is stored in /boot, /, /boot/efi, or in any /usr/src
   or /usr/lib/debug/lib/modules subdirectory, then no command line arguments
@@ -148,7 +175,7 @@
 
     $ crash
     
-    crash 9.0.2
+    crash 9.0.x
     Copyright (C) 2002-2026  Red Hat, Inc.
     Copyright (C) 2004, 2005, 2006, 2010  IBM Corporation
     Copyright (C) 1999-2006  Hewlett-Packard Co
@@ -163,7 +190,7 @@
     certain conditions.  Enter "help copying" to see the conditions.
     This program has absolutely no warranty.  Enter "help warranty" for details.
      
-    GNU gdb 16.2
+    GNU gdb 16.x
     Copyright 2013 Free Software Foundation, Inc.
     License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
     This is free software: you are free to change and redistribute it.
@@ -203,7 +230,7 @@
     exit           log            repeat         timer          
     extend         mach           runq           tree           
     
-    crash version: 9.0.0    gdb version: 16.2
+    crash version: 9.0.x    gdb version: 16.x
     For help on any command above, enter "help <command>".
     For help on input options, enter "help input".
     For help on output options, enter "help output".
@@ -216,7 +243,7 @@
 
     $ crash vmlinux vmcore
  
-    crash 9.0.2
+    crash 9.0.x
     Copyright (C) 2002-2026  Red Hat, Inc.
     Copyright (C) 2004, 2005, 2006, 2010  IBM Corporation
     Copyright (C) 1999-2006  Hewlett-Packard Co
@@ -231,7 +258,7 @@
     certain conditions.  Enter "help copying" to see the conditions.
     This program has absolutely no warranty.  Enter "help warranty" for details.
      
-    GNU gdb 16.2
+    GNU gdb 16.x
     Copyright 2013 Free Software Foundation, Inc.
     License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
     This is free software: you are free to change and redistribute it.

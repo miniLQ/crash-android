@@ -691,6 +691,7 @@ struct new_utsname {
 #define KMOD_PAX                  (0x100ULL)
 #define KMOD_MEMORY               (0x200ULL)
 #define IRQ_DESC_TREE_MAPLE       (0x400ULL)
+#define PER_CPU_CFS_RQ            (0x800ULL)
 
 #define XEN()       (kt->flags & ARCH_XEN)
 #define OPENVZ()    (kt->flags & ARCH_OPENVZ)
@@ -2303,6 +2304,9 @@ struct offset_table {                    /* stash of commonly-used offsets */
 	long page_compound_order;
 	long folio__folio_order;
 	long folio__flags_1;
+	long page_compound_info;
+	long kmem_cache_per_node;
+	long kmem_cache_per_node_ptrs_node;
 };
 
 struct size_table {         /* stash of commonly-used sizes */
@@ -2485,6 +2489,7 @@ struct size_table {         /* stash of commonly-used sizes */
 	long page_compound_order;
 	long folio__folio_order;
 	long folio__flags_1;
+	long kmem_cache_per_node_ptrs;
 };
 
 struct array_table {
@@ -2928,6 +2933,7 @@ struct symbol_table_data {
 #ifdef GDB_5_3
 	struct _bfd *bfd;
 #else
+	struct bfd *bfd_orig;
 	struct bfd *bfd;
 #endif
 	struct sec *sections;
@@ -3809,6 +3815,8 @@ typedef signed int s32;
 #define VM_L5_1G	(0x200)
 #define IRQ_STACKS	(0x400)
 #define OVERFLOW_STACKS     (0x800)
+#define RISCV64_PTE_LEAF(pte) \
+	((pte) & (_PAGE_READ | _PAGE_WRITE | _PAGE_EXEC))
 
 #define RISCV64_OVERFLOW_STACK_SIZE (1 << 12)
 
@@ -3906,7 +3914,7 @@ typedef signed int s32;
 
 #define TIF_SIGPENDING		(1)
 
-#define _SECTION_SIZE_BITS	28
+#define _SECTION_SIZE_BITS	29
 #define _MAX_PHYSMEM_BITS	48
 #endif  /* LOONGARCH64 */
 
@@ -5412,8 +5420,10 @@ extern long _ZOMBIE_;
 #define PS_SUMMARY    (0x40000)
 #define PS_POLICY     (0x80000)
 #define PS_ACTIVE    (0x100000)
+#define PS_EXCLUDE_IDLE    (0x200000)
+#define PS_POLICY_DATA     (0x400000)
 
-#define PS_EXCLUSIVE (PS_TGID_LIST|PS_ARGV_ENVP|PS_TIMES|PS_CHILD_LIST|PS_PPID_LIST|PS_LAST_RUN|PS_RLIMIT|PS_MSECS|PS_SUMMARY|PS_ACTIVE)
+#define PS_EXCLUSIVE (PS_TGID_LIST|PS_ARGV_ENVP|PS_TIMES|PS_CHILD_LIST|PS_PPID_LIST|PS_LAST_RUN|PS_RLIMIT|PS_MSECS|PS_SUMMARY|PS_ACTIVE|PS_POLICY_DATA)
 
 #define MAX_PS_ARGS    (100)   /* maximum command-line specific requests */
 
@@ -5894,6 +5904,7 @@ void parse_for_member_extended(struct datatype_member *, ulong);
 void add_to_downsized(char *);
 int is_downsized(char *);
 int is_string(char *, char *);
+int is_ptrptr(char *, char *);
 struct syment *symbol_complete_match(const char *, struct syment *);
 
 /*  
@@ -6050,6 +6061,8 @@ ulong do_maple_tree(ulong, int, struct list_pair *);
 void help_init(void);
 void cmd_usage(char *, int);
 void display_version(void);
+int cpu_to_nid(int cpu);
+void numa_init(void);
 void display_help_screen(char *);
 #ifdef ARM
 #define dump_machdep_table(X) arm_dump_machdep_table(X)
@@ -7343,13 +7356,40 @@ void loongarch64_dump_machdep_table(ulong);
 
 #define KSYMS_START     (0x1)
 
+struct loongarch64_orc_entry {
+	short sp_offset;
+	short fp_offset;
+	short ra_offset;
+	uint sp_reg;
+	uint fp_reg;
+	uint ra_reg;
+	uint type;
+	uint signal;
+};
+
+struct loongarch64_ORC_data {
+	int enabled;
+	uint lookup_num_blocks;
+	ulong __start_orc_unwind_ip;
+	ulong __stop_orc_unwind_ip;
+	ulong __start_orc_unwind;
+	ulong __stop_orc_unwind;
+	ulong orc_lookup;
+	ulong ip_entry;
+	ulong orc_entry;
+	struct loongarch64_orc_entry orc_entry_data;
+};
+
 struct machine_specific {
 	ulong phys_base;
 	ulong vmalloc_start_addr;
 	ulong modules_vaddr;
 	ulong modules_end;
 
+	ulong irq_stack_size;
+	ulong *irq_stacks;
 	struct loongarch64_pt_regs *crash_task_regs;
+	struct loongarch64_ORC_data orc;
 };
 
 /*

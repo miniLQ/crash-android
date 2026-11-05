@@ -432,6 +432,12 @@ is_netdump(char *file, ulong source_query)
 		 */
 		if (nd->elf64->e_phnum == PN_XNUM) {
 			nd->sect0_64 = (Elf64_Shdr *)sect0;
+			if (nd->sect0_64->sh_info < 2) {
+				error(WARNING,
+				    "%s: invalid section header sh_info: %u\n",
+				    file, nd->sect0_64->sh_info);
+				goto bailout;
+			}
 			nd->num_pt_load_segments = nd->sect0_64->sh_info - 1;
 		} else
 			nd->num_pt_load_segments = nd->elf64->e_phnum - 1;
@@ -561,6 +567,13 @@ resize_elf_header(int fd, char *file, char **eheader_ptr, char **sect0_ptr,
 					perror(buf);
 					return 0;
 				}
+			}
+			if (shdr64->sh_info < 2) {
+				fprintf(stderr,
+				    "%s: invalid section header sh_info: %u\n",
+				    file, shdr64->sh_info);
+				free(shdr64);
+				return 0;
 			}
 			num_pt_load_segments = shdr64->sh_info - 1;
 			*sect0_ptr = (char *)shdr64;
@@ -2089,8 +2102,9 @@ dump_Elf32_Nhdr(Elf32_Off offset, int store)
 
 	notesize = (uint64_t)note->n_namesz + (uint64_t)note->n_descsz;
 
-	if ((note->n_namesz == 0) || !remaining || (notesize > remaining)) {
-		error(WARNING, 
+	if ((note->n_namesz == 0) || !remaining || (notesize > remaining) ||
+	    (note->n_namesz >= BUFSIZE)) {
+		error(WARNING,
 		    "possibly corrupt Elf32_Nhdr: "
 		    "n_namesz: %ld n_descsz: %ld n_type: %lx\n%s",
 			note->n_namesz, note->n_descsz, note->n_type,
@@ -2326,8 +2340,9 @@ dump_Elf64_Nhdr(Elf64_Off offset, int store)
 
 	notesize = (uint64_t)note->n_namesz + (uint64_t)note->n_descsz;
 
-	if ((note->n_namesz == 0) || !remaining || (notesize > remaining)) {
-		error(WARNING, 
+	if ((note->n_namesz == 0) || !remaining || (notesize > remaining) ||
+	    (note->n_namesz >= BUFSIZE)) {
+		error(WARNING,
 		    "possibly corrupt Elf64_Nhdr: "
 		    "n_namesz: %ld n_descsz: %ld n_type: %lx\n%s",
 			note->n_namesz, note->n_descsz, note->n_type,
